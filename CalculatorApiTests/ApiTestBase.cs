@@ -11,6 +11,8 @@ namespace CalculatorApiTests;
 /// Die API wird nicht aus diesem Repository gestartet, sondern extern betrieben.
 /// Die Basis-URL ist über die Umgebungsvariable API_BASE_URL konfigurierbar
 /// (Standard: http://localhost:5116).
+/// Jede Fixture hält bewusst ihre eigene Playwright-Instanz: Playwright ist nicht
+/// threadsicher, die Fixtures laufen aber parallel (siehe AssemblyInfo).
 /// </summary>
 [AllureNUnit]
 public abstract class ApiTestBase
@@ -20,6 +22,9 @@ public abstract class ApiTestBase
 
     protected static string BaseUrl =>
         Environment.GetEnvironmentVariable("API_BASE_URL") ?? "http://localhost:5116";
+
+    private static bool IsCi =>
+        string.Equals(Environment.GetEnvironmentVariable("CI"), "true", StringComparison.OrdinalIgnoreCase);
 
     protected static string Endpoint(string op) => $"/api/calculator/{op}";
 
@@ -61,6 +66,7 @@ public abstract class ApiTestBase
         Request = await _playwright!.APIRequest.NewContextAsync(new()
         {
             BaseURL = BaseUrl,
+            Timeout = 10_000,
         });
     }
 
@@ -114,8 +120,8 @@ public abstract class ApiTestBase
         AllureApi.AddAttachment($"Response (HTTP {response.Status})", "text/plain", Encoding.UTF8.GetBytes(text), ".txt");
     }
 
-    /// <summary>Prüft ProblemDetails-Struktur gemäß RFC 9457 (title, status, Content-Type).</summary>
-    protected static Task ExpectProblemDetailsAsync(IAPIResponse response) =>
+    /// <summary>Prüft ProblemDetails-Struktur gemäß RFC 9457 (title, status, Content-Type; optional errors-Objekt).</summary>
+    protected static Task ExpectProblemDetailsAsync(IAPIResponse response, bool expectErrors = false) =>
         AllureApi.Step("Prüfe ProblemDetails-Struktur (RFC 9457)", async () =>
         {
             var body = await response.JsonAsync();
@@ -124,10 +130,18 @@ public abstract class ApiTestBase
                 Assert.That(response.Headers.GetValueOrDefault("content-type"), Does.Contain("application/problem+json"));
                 Assert.That(body?.GetProperty("title").GetString(), Is.Not.Null.And.Not.Empty);
                 Assert.That(body?.GetProperty("status").GetInt32(), Is.EqualTo(response.Status));
+                if (expectErrors)
+                {
+                    var hasErrors = body is { } b
+                        && b.TryGetProperty("errors", out var errors)
+                        && errors.ValueKind == JsonValueKind.Object
+                        && errors.EnumerateObject().Any();
+                    Assert.That(hasErrors, Is.True, "Erwartet ein nicht-leeres 'errors'-Objekt (Modelvalidierung).");
+                }
             });
         });
 
-    /// <summary>Bricht die Fixture mit klarer Meldung ab, wenn die API nicht erreichbar ist.</summary>
+    /// <summary>Bricht die Fixture ab, wenn die API nicht erreichbar ist (Probe: GET /health).</summary>
     private static async Task EnsureApiReachableAsync(IPlaywright playwright)
     {
         var context = await playwright.APIRequest.NewContextAsync(new()
@@ -137,18 +151,37 @@ public abstract class ApiTestBase
         });
         try
         {
-            await context.GetAsync("/");
+            var response = await context.GetAsync("/health");
+            if (!response.Ok)
+            {
+                ReportUnreachable($"Health-Endpunkt lieferte HTTP {response.Status}.");
+            }
         }
         catch (PlaywrightException ex)
         {
-            Assert.Inconclusive(
-                $"Die Calculator-API ist unter '{BaseUrl}' nicht erreichbar. " +
-                "Bitte API starten oder API_BASE_URL korrekt setzen. " +
-                $"Fehler: {ex.Message}");
+            ReportUnreachable(ex.Message);
         }
         finally
         {
             await context.DisposeAsync();
+        }
+    }
+
+    /// <summary>Lokal: Inconclusive (Umgebungsproblem). In CI: harter Fehlschlag, damit die Pipeline nicht „grün ohne Tests“ wird.</summary>
+    private static void ReportUnreachable(string reason)
+    {
+        var message =
+            $"Die Calculator-API ist unter '{BaseUrl}' nicht erreichbar. " +
+            "Bitte API starten oder API_BASE_URL korrekt setzen. " +
+            $"Fehler: {reason}";
+
+        if (IsCi)
+        {
+            Assert.Fail(message);
+        }
+        else
+        {
+            Assert.Inconclusive(message);
         }
     }
 }

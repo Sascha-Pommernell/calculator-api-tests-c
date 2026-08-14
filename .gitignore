@@ -5,6 +5,12 @@
 [Ll]og/
 [Ll]ogs/
 
+# Testergebnisse
+[Tt]est[Rr]esult*/
+*.trx
+allure-results/
+allure-report/
+
 # Visual Studio
 .vs/
 *.user

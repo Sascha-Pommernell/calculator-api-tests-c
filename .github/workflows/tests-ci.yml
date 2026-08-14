@@ -1,0 +1,114 @@
+name: Build & API-Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      api-ref:
+        description: "Git-Ref des API-Repos (Branch, Tag oder SHA)"
+        default: "main"
+        required: false
+
+permissions:
+  contents: read
+  checks: write
+
+concurrency:
+  group: tests-ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Test-Repo auschecken
+        uses: actions/checkout@v4
+
+      - name: API-Repo auschecken
+        uses: actions/checkout@v4
+        with:
+          repository: Sascha-Pommernell/calculator-api
+          ref: ${{ inputs.api-ref || 'main' }}
+          path: api-repo
+
+      - name: API-Docker-Image bauen
+        run: docker build -t calculator-api:ci api-repo
+
+      - name: Test-Docker-Image bauen
+        run: docker build -t calculator-api-tests:ci .
+
+      - name: Docker-Netzwerk anlegen und API starten
+        run: |
+          docker network create calc-net
+          docker run -d --name calculator-api \
+            --network calc-net \
+            -p 8080:8080 \
+            calculator-api:ci
+
+      - name: Auf API warten
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/health > /dev/null; then
+              echo "API ist erreichbar."
+              exit 0
+            fi
+            echo "Warte auf API... ($i/30)"
+            sleep 2
+          done
+          echo "::error::API wurde nicht rechtzeitig erreichbar."
+          docker logs calculator-api
+          exit 1
+
+      - name: Tests im Docker-Container ausführen
+        id: tests
+        continue-on-error: true
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/test-results"
+          docker run --rm --name calculator-api-tests \
+            --network calc-net \
+            -e API_BASE_URL=http://calculator-api:8080 \
+            -e CI=true \
+            -v "$GITHUB_WORKSPACE/test-results:/results" \
+            calculator-api-tests:ci
+
+      - name: Besitzrechte der Testergebnisse übernehmen
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" test-results 2>/dev/null || true
+
+      - name: API-Logs anzeigen (bei Testfehlern)
+        if: steps.tests.outcome == 'failure'
+        run: docker logs calculator-api
+
+      - name: Testergebnisse als Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: testergebnisse
+          path: test-results/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Testergebnisse als Check veröffentlichen
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: API-Testergebnisse
+          path: test-results/trx/*.trx
+          reporter: dotnet-trx
+          fail-on-error: false
+
+      - name: Workflow bei Testfehlern fehlschlagen lassen
+        if: steps.tests.outcome == 'failure'
+        run: |
+          echo "::error::Mindestens ein API-Test ist fehlgeschlagen."
+          exit 1
+
+      - name: Aufräumen
+        if: always()
+        run: |
+          docker rm -f calculator-api || true
+          docker network rm calc-net || true

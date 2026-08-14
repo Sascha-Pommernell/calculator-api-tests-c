@@ -1,9 +1,14 @@
+using Allure.Net.Commons;
+using Allure.NUnit.Attributes;
 using Microsoft.Playwright;
 
 namespace CalculatorApiTests;
 
 /// <summary>4.1 Happy Path – Grundrechenarten (erwartet: 200 OK).</summary>
 [TestFixture]
+[Category("Prio-Hoch")]
+[AllureSuite("4.1 Happy Path")]
+[AllureSeverity(SeverityLevel.critical)]
 public class HappyPathTests : ApiTestBase
 {
     public static IEnumerable<TestCaseData> Cases()
@@ -41,6 +46,9 @@ public class HappyPathTests : ApiTestBase
 
 /// <summary>4.2 Gleitkomma-Randfälle.</summary>
 [TestFixture]
+[Category("Prio-Mittel")]
+[AllureSuite("4.2 Gleitkomma-Randfälle")]
+[AllureSeverity(SeverityLevel.normal)]
 public class FloatingPointTests : ApiTestBase
 {
     [Test(Description = "TC-FLT-01: add(0.1, 0.2) ≈ 0.3 (Toleranzvergleich)")]
@@ -92,6 +100,9 @@ public class FloatingPointTests : ApiTestBase
 
 /// <summary>4.3 Division durch null (erwartet: 400 Bad Request).</summary>
 [TestFixture]
+[Category("Prio-Hoch")]
+[AllureSuite("4.3 Division durch null")]
+[AllureSeverity(SeverityLevel.critical)]
 public class DivisionByZeroTests : ApiTestBase
 {
     [Test(Description = "TC-DIV0-01: divide(10, 0) → 400 mit ProblemDetails")]
@@ -120,6 +131,9 @@ public class DivisionByZeroTests : ApiTestBase
 [TestFixture("subtract")]
 [TestFixture("multiply")]
 [TestFixture("divide")]
+[Category("Prio-Hoch")]
+[AllureSuite("4.4 Eingabevalidierung")]
+[AllureSeverity(SeverityLevel.critical)]
 public class ValidationTests(string op) : ApiTestBase
 {
     [Test(Description = "TC-VAL-01: mit nur einer Zahl → 400")]
@@ -127,7 +141,7 @@ public class ValidationTests(string op) : ApiTestBase
     {
         var response = await CalcAsync(op, [42]);
         Assert.That(response.Status, Is.EqualTo(400));
-        await ExpectProblemDetailsAsync(response);
+        await ExpectProblemDetailsAsync(response, expectErrors: true);
     }
 
     [Test(Description = "TC-VAL-02: mit leerem Array → 400")]
@@ -135,7 +149,7 @@ public class ValidationTests(string op) : ApiTestBase
     {
         var response = await CalcAsync(op, []);
         Assert.That(response.Status, Is.EqualTo(400));
-        await ExpectProblemDetailsAsync(response);
+        await ExpectProblemDetailsAsync(response, expectErrors: true);
     }
 
     [Test(Description = "TC-VAL-03: ohne Feld numbers → 400")]
@@ -143,7 +157,7 @@ public class ValidationTests(string op) : ApiTestBase
     {
         var response = await PostAsync(op, new() { DataObject = new { } });
         Assert.That(response.Status, Is.EqualTo(400));
-        await ExpectProblemDetailsAsync(response);
+        await ExpectProblemDetailsAsync(response, expectErrors: true);
     }
 
     [Test(Description = "TC-VAL-04: mit leerem Body → 400")]
@@ -155,6 +169,7 @@ public class ValidationTests(string op) : ApiTestBase
             Data = "",
         });
         Assert.That(response.Status, Is.EqualTo(400));
+        await ExpectProblemDetailsAsync(response, expectErrors: true);
     }
 
     [Test(Description = "TC-VAL-05: mit ungültigem Typ → 400")]
@@ -165,7 +180,7 @@ public class ValidationTests(string op) : ApiTestBase
             DataObject = new { numbers = new object[] { 1, "abc" } },
         });
         Assert.That(response.Status, Is.EqualTo(400));
-        await ExpectProblemDetailsAsync(response);
+        await ExpectProblemDetailsAsync(response, expectErrors: true);
     }
 
     [Test(Description = "TC-VAL-06: mit syntaktisch ungültigem JSON → 400")]
@@ -177,6 +192,7 @@ public class ValidationTests(string op) : ApiTestBase
             Data = "{ \"numbers\": [1, 2",
         });
         Assert.That(response.Status, Is.EqualTo(400));
+        await ExpectProblemDetailsAsync(response, expectErrors: true);
     }
 
     [Test(Description = "TC-VAL-07: mit numbers = null → 400")]
@@ -187,7 +203,7 @@ public class ValidationTests(string op) : ApiTestBase
             DataObject = new { numbers = (double[]?)null },
         });
         Assert.That(response.Status, Is.EqualTo(400));
-        await ExpectProblemDetailsAsync(response);
+        await ExpectProblemDetailsAsync(response, expectErrors: true);
     }
 
     [Test(Description = "TC-VAL-08: mit Content-Type text/plain → 415")]
@@ -200,10 +216,21 @@ public class ValidationTests(string op) : ApiTestBase
         });
         Assert.That(response.Status, Is.EqualTo(415));
     }
+
+    [Test(Description = "TC-VAL-09: mit mehr als 1000 Zahlen → 400 (Obergrenze)")]
+    public async Task TC_VAL_09_Zu_viele_Zahlen()
+    {
+        var response = await CalcAsync(op, [.. Enumerable.Repeat(1d, 1001)]);
+        Assert.That(response.Status, Is.EqualTo(400));
+        await ExpectProblemDetailsAsync(response, expectErrors: true);
+    }
 }
 
 /// <summary>4.5 API-Vertrag / Robustheit.</summary>
 [TestFixture]
+[Category("Prio-Mittel")]
+[AllureSuite("4.5 API-Vertrag")]
+[AllureSeverity(SeverityLevel.normal)]
 public class ContractTests : ApiTestBase
 {
     [Test(Description = "TC-CON-01: Response enthält genau operation, numbers, result")]
