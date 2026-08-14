@@ -1,3 +1,6 @@
+using System.Text;
+using System.Text.Json;
+using Allure.Net.Commons;
 using Allure.NUnit;
 using Microsoft.Playwright;
 
@@ -72,19 +75,57 @@ public abstract class ApiTestBase
     }
 
     protected Task<IAPIResponse> CalcAsync(string op, double[] numbers) =>
-        Request.PostAsync(Endpoint(op), new() { DataObject = new { numbers } });
+        PostAsync(op, new() { DataObject = new { numbers } });
+
+    /// <summary>POST auf einen Calculator-Endpunkt, aufgezeichnet als Allure-Step mit Request/Response-Attachments.</summary>
+    protected Task<IAPIResponse> PostAsync(string op, APIRequestContextOptions options) =>
+        AllureApi.Step($"POST {Endpoint(op)}", async () =>
+        {
+            AttachRequest(options);
+            var response = await Request.PostAsync(Endpoint(op), options);
+            await AttachResponseAsync(response);
+            return response;
+        });
+
+    /// <summary>GET auf einen Pfad, aufgezeichnet als Allure-Step mit Response-Attachment.</summary>
+    protected Task<IAPIResponse> GetAsync(string path) =>
+        AllureApi.Step($"GET {path}", async () =>
+        {
+            var response = await Request.GetAsync(path);
+            await AttachResponseAsync(response);
+            return response;
+        });
+
+    private static void AttachRequest(APIRequestContextOptions options)
+    {
+        var body = options.Data as string
+            ?? (options.DataObject is not null ? JsonSerializer.Serialize(options.DataObject) : null);
+        if (!string.IsNullOrEmpty(body))
+        {
+            AllureApi.AddAttachment("Request-Body", "application/json", Encoding.UTF8.GetBytes(body), ".json");
+        }
+    }
+
+    private static async Task AttachResponseAsync(IAPIResponse response)
+    {
+        var body = await response.TextAsync();
+        var text = $"HTTP {response.Status} {response.StatusText}\n" +
+                   $"Content-Type: {response.Headers.GetValueOrDefault("content-type", "-")}\n\n{body}";
+        AllureApi.AddAttachment($"Response (HTTP {response.Status})", "text/plain", Encoding.UTF8.GetBytes(text), ".txt");
+    }
 
     /// <summary>Prüft ProblemDetails-Struktur gemäß RFC 9457 (title, status, Content-Type).</summary>
-    protected static async Task ExpectProblemDetailsAsync(IAPIResponse response)
-    {
-        var body = await response.JsonAsync();
-        Assert.Multiple(() =>
+    protected static Task ExpectProblemDetailsAsync(IAPIResponse response) =>
+        AllureApi.Step("Prüfe ProblemDetails-Struktur (RFC 9457)", async () =>
         {
-            Assert.That(response.Headers.GetValueOrDefault("content-type"), Does.Contain("application/problem+json"));
-            Assert.That(body?.GetProperty("title").GetString(), Is.Not.Null.And.Not.Empty);
-            Assert.That(body?.GetProperty("status").GetInt32(), Is.EqualTo(response.Status));
+            var body = await response.JsonAsync();
+            Assert.Multiple(() =>
+            {
+                Assert.That(response.Headers.GetValueOrDefault("content-type"), Does.Contain("application/problem+json"));
+                Assert.That(body?.GetProperty("title").GetString(), Is.Not.Null.And.Not.Empty);
+                Assert.That(body?.GetProperty("status").GetInt32(), Is.EqualTo(response.Status));
+            });
         });
-    }
 
     /// <summary>Bricht die Fixture mit klarer Meldung ab, wenn die API nicht erreichbar ist.</summary>
     private static async Task EnsureApiReachableAsync(IPlaywright playwright)

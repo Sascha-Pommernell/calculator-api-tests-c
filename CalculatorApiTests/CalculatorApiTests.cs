@@ -141,7 +141,7 @@ public class ValidationTests(string op) : ApiTestBase
     [Test(Description = "TC-VAL-03: ohne Feld numbers → 400")]
     public async Task TC_VAL_03_Ohne_Feld_numbers()
     {
-        var response = await Request.PostAsync(Endpoint(op), new() { DataObject = new { } });
+        var response = await PostAsync(op, new() { DataObject = new { } });
         Assert.That(response.Status, Is.EqualTo(400));
         await ExpectProblemDetailsAsync(response);
     }
@@ -149,7 +149,7 @@ public class ValidationTests(string op) : ApiTestBase
     [Test(Description = "TC-VAL-04: mit leerem Body → 400")]
     public async Task TC_VAL_04_Leerer_Body()
     {
-        var response = await Request.PostAsync(Endpoint(op), new()
+        var response = await PostAsync(op, new()
         {
             Headers = new Dictionary<string, string> { ["Content-Type"] = "application/json" },
             Data = "",
@@ -160,7 +160,7 @@ public class ValidationTests(string op) : ApiTestBase
     [Test(Description = "TC-VAL-05: mit ungültigem Typ → 400")]
     public async Task TC_VAL_05_Ungueltiger_Typ()
     {
-        var response = await Request.PostAsync(Endpoint(op), new()
+        var response = await PostAsync(op, new()
         {
             DataObject = new { numbers = new object[] { 1, "abc" } },
         });
@@ -171,7 +171,7 @@ public class ValidationTests(string op) : ApiTestBase
     [Test(Description = "TC-VAL-06: mit syntaktisch ungültigem JSON → 400")]
     public async Task TC_VAL_06_Ungueltiges_JSON()
     {
-        var response = await Request.PostAsync(Endpoint(op), new()
+        var response = await PostAsync(op, new()
         {
             Headers = new Dictionary<string, string> { ["Content-Type"] = "application/json" },
             Data = "{ \"numbers\": [1, 2",
@@ -182,7 +182,7 @@ public class ValidationTests(string op) : ApiTestBase
     [Test(Description = "TC-VAL-07: mit numbers = null → 400")]
     public async Task TC_VAL_07_Numbers_null()
     {
-        var response = await Request.PostAsync(Endpoint(op), new()
+        var response = await PostAsync(op, new()
         {
             DataObject = new { numbers = (double[]?)null },
         });
@@ -193,7 +193,7 @@ public class ValidationTests(string op) : ApiTestBase
     [Test(Description = "TC-VAL-08: mit Content-Type text/plain → 415")]
     public async Task TC_VAL_08_ContentType_text_plain()
     {
-        var response = await Request.PostAsync(Endpoint(op), new()
+        var response = await PostAsync(op, new()
         {
             Headers = new Dictionary<string, string> { ["Content-Type"] = "text/plain" },
             Data = "{\"numbers\":[1,2]}",
@@ -227,14 +227,14 @@ public class ContractTests : ApiTestBase
     [Test(Description = "TC-CON-03: GET auf POST-Endpunkt → 405 Method Not Allowed")]
     public async Task TC_CON_03_Get_auf_Post_Endpunkt()
     {
-        var response = await Request.GetAsync(Endpoint(Ops.Add));
+        var response = await GetAsync(Endpoint(Ops.Add));
         Assert.That(response.Status, Is.EqualTo(405));
     }
 
     [Test(Description = "TC-CON-04: Unbekannte Operation /modulo → 404 Not Found")]
     public async Task TC_CON_04_Unbekannte_Operation()
     {
-        var response = await Request.PostAsync(Endpoint("modulo"), new()
+        var response = await PostAsync("modulo", new()
         {
             DataObject = new { numbers = new double[] { 1, 2 } },
         });
@@ -244,7 +244,7 @@ public class ContractTests : ApiTestBase
     [Test(Description = "TC-CON-05: Unbekannte Zusatzfelder im Body werden toleriert → 200")]
     public async Task TC_CON_05_Zusatzfelder_toleriert()
     {
-        var response = await Request.PostAsync(Endpoint(Ops.Add), new()
+        var response = await PostAsync(Ops.Add, new()
         {
             DataObject = new { numbers = new double[] { 1, 2 }, extra = true },
         });
